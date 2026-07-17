@@ -1,9 +1,11 @@
 # Multi-stage build for PetClinic Spring Boot application
-FROM eclipse-temurin:17-jdk-jammy AS build
+FROM maven:3.9-eclipse-temurin-17 AS build
 
 WORKDIR /app
-COPY . .
-RUN chmod +x mvnw && ./mvnw package -DskipTests --no-transfer-progress
+COPY pom.xml .
+RUN mvn dependency:go-offline -B
+COPY src ./src
+RUN mvn package -DskipTests --no-transfer-progress -B
 
 # Runtime stage
 FROM eclipse-temurin:17-jre-jammy
