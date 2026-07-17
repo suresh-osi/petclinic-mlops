@@ -1,0 +1,19 @@
+{
+  "enabled": true,
+  "name": "Sync Docs on Source Change",
+  "description": "Watches Terraform configs and variable files. When any of these change, prompts the agent to update the README, /docs folder, or relevant playbooks to reflect the changes.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "**/*.tf",
+      "**/*.tfvars"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A Terraform file was just edited. Review the change and determine if any documentation needs to be updated:\n- If there is a /docs folder, update the relevant file there.\n- Otherwise, update README.md to reflect the change.\n- If the change affects infrastructure behavior (health checks, ports, security groups, ALB config), also check if any playbook under .kiro/playbooks/ needs updating.\nOnly update documentation if the change is meaningful (new resources, changed behavior, updated configuration). Do not update docs for minor formatting changes."
+  },
+  "workspaceFolderName": "petclinic",
+  "shortName": "sync-docs-on-source-change"
+}

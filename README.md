@@ -179,6 +179,8 @@ The `infrastructure/environments/dev/` directory contains Terraform configuratio
 
 ### Terraform File Structure
 
+**Dev environment** (`infrastructure/environments/dev/`):
+
 | File | Contents |
 |------|----------|
 | `vpc.tf` | VPC, subnets, internet gateway, route tables, and route table associations |
@@ -188,15 +190,25 @@ The `infrastructure/environments/dev/` directory contains Terraform configuratio
 | `provider.tf` | AWS provider configuration |
 | `userdata.sh` | EC2 bootstrap script — installs Java 17, clones the repo, builds and starts the app |
 
+**MLOps environment** (`infrastructure/environments/mlops/`):
+
+| File | Contents |
+|------|----------|
+| `provider.tf` | AWS provider configuration (`hashicorp/aws ~> 5.0`, region via variable) |
+
 ### Architecture
 
 | Component | Details |
 |-----------|---------|
 | VPC | `10.0.0.0/16`, DNS support enabled |
-| Subnets | Two public subnets in `ap-south-1a` and `ap-south-1b` |
+| Subnets | Two public (`10.0.1.0/24`, `10.0.2.0/24`) across `ap-south-1a` and `ap-south-1b` |
 | EC2 | Ubuntu 22.04, runs the Spring Boot JAR directly on port 8080 |
 | ALB | Public-facing, HTTP port 80, forwards to EC2 port 8080 |
 | Target Group | Port 8080, HTTP health checks |
+
+### CI/CD Pipeline & EKS (MLOps Environment)
+
+CI/CD (CodePipeline + CodeBuild), EKS, and SageMaker resources are managed in the separate MLOps environment at `infrastructure/environments/mlops/`. They are not part of the dev environment.
 
 ### Configurable Variables
 
@@ -247,6 +259,75 @@ Terraform state is stored remotely in S3 for the dev environment:
 | Encryption | Enabled (SSE) |
 
 > **Note:** The S3 bucket must exist before running `terraform init`. State locking is not configured — consider adding a DynamoDB lock table for team environments.
+
+### MLOps Environment
+
+A separate Terraform environment at `infrastructure/environments/mlops/` hosts the MLOps-specific infrastructure in `us-east-1`. It provisions its own VPC, EKS cluster, and SageMaker resources independently from the dev environment.
+
+| Setting | Value |
+|---------|-------|
+| Provider | `hashicorp/aws ~> 5.0` |
+| Region | `us-east-1` (via `var.aws_region`) |
+
+**MLOps Terraform files:**
+
+| File | Contents |
+|------|----------|
+| `main.tf` | Data sources (caller identity, ECR authorization) |
+| `provider.tf` | AWS provider configuration |
+| `variables.tf` | Input variable declarations |
+| `vpc.tf` | VPC, public/private subnets, IGW, NAT gateway, route tables |
+| `eks.tf` | EKS cluster, node group, and IAM roles |
+| `ecr.tf` | ECR repositories for ML containers |
+| `sagemaker.tf` | SageMaker endpoint configuration |
+| `codepipeline.tf` | CodePipeline, CodeBuild projects, and IAM roles (conditionally deployed) |
+| `monitoring.tf` | CloudWatch dashboard and alarms |
+
+**Conditional Resources — CodePipeline:**
+
+The CodePipeline and its IAM role are only created when `var.codestar_connection_arn` is set to a non-empty value. This allows the base infrastructure (EKS, ECR, SageMaker) to be provisioned without requiring a GitHub CodeStar connection upfront.
+
+To enable the CI/CD pipeline, set the variable in `terraform.tfvars`:
+
+```hcl
+codestar_connection_arn = "arn:aws:codestar-connections:us-east-1:123456789012:connection/your-connection-id"
+```
+
+The pipeline tracks the `master` branch by default (configured via `github_branch` in `terraform.tfvars`). To change the tracked branch, update:
+
+```hcl
+github_branch = "master"  # branch that triggers the pipeline
+```
+
+When the connection ARN is not set, the `codepipeline_name` output will display `"not-deployed (set codestar_connection_arn first)"`.
+
+**MLOps Architecture:**
+
+| Component | Details |
+|-----------|---------|
+| VPC | `10.1.0.0/16`, DNS support enabled |
+| Subnets | Two public (`10.1.1.0/24`, `10.1.2.0/24`) + two private (`10.1.3.0/24`, `10.1.4.0/24`) in `us-east-1a` / `us-east-1b` |
+| EKS Cluster | `petclinic-eks-cluster`, Kubernetes 1.31, public + private endpoint access |
+| EKS Node Group | `petclinic-mlops-nodes`, workers in private subnets, auto-scaling (1–3 nodes, `t3.micro`) |
+| NAT Gateway | Provides internet access for EKS nodes in private subnets |
+| SageMaker Endpoint | `petclinic-predict-endpoint` for ML inference |
+
+**EKS Node IAM Permissions (MLOps):**
+- `AmazonEKSWorkerNodePolicy` — basic EKS node operations
+- `AmazonEKS_CNI_Policy` — VPC CNI networking
+- `AmazonEC2ContainerRegistryReadOnly` — pull images from ECR
+- Custom policy: `sagemaker:InvokeEndpoint` — allows EKS pods to call the SageMaker prediction endpoint
+
+**Deploy MLOps environment:**
+
+```bash
+cd infrastructure/environments/mlops
+terraform init
+terraform plan
+terraform apply
+```
+
+**Key difference from dev environment:** The MLOps EKS cluster is always provisioned (no `deploy_eks` flag) since it's the primary compute layer for running the PetClinic application alongside ML inference workloads.
 
 ### Deploying
 
