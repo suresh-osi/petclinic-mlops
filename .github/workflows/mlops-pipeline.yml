@@ -1,0 +1,164 @@
+name: MLOps Pipeline - Build & Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ml/**'
+      - 'src/**'
+      - 'pom.xml'
+      - 'Dockerfile'
+      - 'buildspec-*.yml'
+  pull_request:
+    branches: [main]
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPO_APP: petclinic
+  ECR_REPO_ML: petclinic-ml
+  EKS_CLUSTER: petclinic-eks-cluster
+  SAGEMAKER_PIPELINE: petclinic-mlops-pipeline
+
+jobs:
+  # Job 1: Build and Push PetClinic Application Image
+  build-app:
+    name: Build PetClinic Application
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build application
+        run: ./mvnw package -DskipTests --no-transfer-progress
+
+      - name: Build and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPO_APP:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPO_APP:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPO_APP:latest
+          docker push $ECR_REGISTRY/$ECR_REPO_APP:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPO_APP:latest
+
+  # Job 2: Build and Push ML Model Container
+  build-ml:
+    name: Build ML Container
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push ML Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPO_ML:$IMAGE_TAG -f ml/docker/Dockerfile .
+          docker tag $ECR_REGISTRY/$ECR_REPO_ML:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPO_ML:latest
+          docker push $ECR_REGISTRY/$ECR_REPO_ML:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPO_ML:latest
+
+  # Job 3: Upload training data and trigger SageMaker Pipeline
+  train-model:
+    name: Train ML Model
+    needs: build-ml
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload training data to S3
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          aws s3 cp ml/data/train.csv s3://petclinic-ml-data-${ACCOUNT_ID}/data/train.csv
+
+      - name: Trigger SageMaker Pipeline
+        run: |
+          aws sagemaker start-pipeline-execution \
+            --pipeline-name $SAGEMAKER_PIPELINE \
+            --pipeline-execution-description "Triggered by GitHub Actions commit ${{ github.sha }}"
+
+  # Job 4: Deploy to EKS (if enabled)
+  deploy-eks:
+    name: Deploy to EKS
+    needs: [build-app, train-model]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --name $EKS_CLUSTER --region $AWS_REGION
+
+      - name: Deploy to EKS
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Replace placeholder in manifest
+          sed -i "s|\${AWS_ACCOUNT_ID}|$(aws sts get-caller-identity --query Account --output text)|g" k8s/petclinic-deployment.yaml
+          kubectl apply -f k8s/petclinic-deployment.yaml
+          kubectl rollout status deployment/petclinic --timeout=300s

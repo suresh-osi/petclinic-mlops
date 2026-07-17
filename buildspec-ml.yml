@@ -1,0 +1,38 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - IMAGE_TAG=${COMMIT_HASH:-latest}
+
+  build:
+    commands:
+      - echo Building ML model container...
+      - docker build -t $ECR_REPO_ML:$IMAGE_TAG -f ml/docker/Dockerfile .
+      - docker tag $ECR_REPO_ML:$IMAGE_TAG $ECR_REPO_ML:latest
+
+  post_build:
+    commands:
+      - echo Pushing ML container to ECR...
+      - docker push $ECR_REPO_ML:$IMAGE_TAG
+      - docker push $ECR_REPO_ML:latest
+      - echo Triggering SageMaker Pipeline...
+      - |
+        python3 -c "
+        import boto3
+        import json
+        client = boto3.client('sagemaker', region_name='$AWS_REGION')
+        response = client.start_pipeline_execution(
+            PipelineName='petclinic-mlops-pipeline',
+            PipelineExecutionDescription='Triggered by CodeBuild commit $COMMIT_HASH'
+        )
+        print(f'SageMaker Pipeline Execution ARN: {response[\"PipelineExecutionArn\"]}')
+        "
+      - echo ML build and pipeline trigger completed on `date`
+
+artifacts:
+  files:
+    - ml/**/*

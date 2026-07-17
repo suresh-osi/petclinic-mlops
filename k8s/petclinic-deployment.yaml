@@ -1,0 +1,90 @@
+# ============================================================
+# PetClinic Kubernetes Deployment (EKS - us-east-1)
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: petclinic
+  namespace: default
+  labels:
+    app: petclinic
+    version: "1.0"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: petclinic
+  template:
+    metadata:
+      labels:
+        app: petclinic
+        version: "1.0"
+    spec:
+      containers:
+      - name: petclinic
+        image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/petclinic-mlops:latest
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+        env:
+        - name: ML_SAGEMAKER_ENABLED
+          value: "true"
+        - name: ML_SAGEMAKER_ENDPOINT_NAME
+          value: "petclinic-predict-endpoint"
+        - name: ML_SAGEMAKER_REGION
+          value: "us-east-1"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 90
+          periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: petclinic-service
+  namespace: default
+  labels:
+    app: petclinic
+spec:
+  type: LoadBalancer
+  selector:
+    app: petclinic
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: petclinic-hpa
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: petclinic
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70

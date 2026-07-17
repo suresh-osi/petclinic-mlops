@@ -1,0 +1,16 @@
+{
+  "pipeline_name": "petclinic-mlops-pipeline",
+  "region": "us-east-1",
+  "s3_bucket": "petclinic-ml-data",
+  "training_instance_type": "ml.m5.large",
+  "inference_instance_type": "ml.t2.medium",
+  "endpoint_name": "petclinic-predict-endpoint",
+  "model_name": "petclinic-noshow-model",
+  "framework_version": "1.2-1",
+  "python_version": "py3",
+  "hyperparameters": {
+    "n_estimators": "100",
+    "max_depth": "10",
+    "test_size": "0.2"
+  }
+}
