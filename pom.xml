@@ -38,6 +38,7 @@
     <maven-checkstyle.version>3.6.0</maven-checkstyle.version>
     <nohttp-checkstyle.version>0.0.11</nohttp-checkstyle.version>
     <spring-format.version>0.0.47</spring-format.version>
+    <skip.validation>false</skip.validation>
   </properties>
 
   <dependencies>
@@ -206,6 +207,9 @@
               <goal>validate</goal>
             </goals>
             <phase>validate</phase>
+            <configuration>
+              <skip>${skip.validation}</skip>
+            </configuration>
           </execution>
         </executions>
       </plugin>
