@@ -57,3 +57,7 @@ terraform.tfvars
 
 # Kiro MCP settings (contains secrets)
 .kiro/settings/mcp.json
+
+# Binaries
+kubectl.exe
+*.exe
