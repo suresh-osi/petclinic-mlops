@@ -5,7 +5,7 @@ WORKDIR /app
 COPY pom.xml .
 RUN mvn dependency:go-offline -B
 COPY src ./src
-RUN mvn package -DskipTests --no-transfer-progress -B
+RUN mvn package -DskipTests -Dspring-javaformat.skip=true --no-transfer-progress -B
 
 # Runtime stage
 FROM eclipse-temurin:17-jre-jammy
