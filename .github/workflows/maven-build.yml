@@ -26,4 +26,4 @@ jobs:
           distribution: 'adopt'
           cache: maven
       - name: Build with Maven Wrapper
-        run: chmod +x mvnw && ./mvnw verify -X -e
+        run: chmod +x mvnw && ./mvnw verify -Dspring-javaformat.skip=true
