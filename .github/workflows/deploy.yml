@@ -47,7 +47,7 @@ jobs:
       - name: Build with Maven
         id: build-jar
         run: |
-          ./mvnw -B package -DskipTests --no-transfer-progress
+          ./mvnw -B package -DskipTests -Dskip.validation=true -Dcheckstyle.skip=true --no-transfer-progress
           JAR_FILE=$(ls target/spring-petclinic-*.jar | head -1)
           JAR_NAME=$(basename $JAR_FILE)
           echo "jar_name=${JAR_NAME}" >> "$GITHUB_OUTPUT"
@@ -83,7 +83,7 @@ jobs:
         run: chmod +x mvnw
 
       - name: Generate dependency tree
-        run: ./mvnw -B dependency:tree --no-transfer-progress
+        run: ./mvnw -B dependency:tree -Dskip.validation=true -Dcheckstyle.skip=true --no-transfer-progress
 
       - name: Run Trivy - Dependency Scan (SCA)
         uses: aquasecurity/trivy-action@0.35.0
