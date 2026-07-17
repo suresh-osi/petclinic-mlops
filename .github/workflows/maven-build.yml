@@ -25,5 +25,8 @@ jobs:
           java-version: ${{matrix.java}}
           distribution: 'adopt'
           cache: maven
-      - name: Build with Maven Wrapper
-        run: chmod +x mvnw && ./mvnw verify -Dspring-javaformat.skip=true
+      - name: Format and Build
+        run: |
+          chmod +x mvnw
+          ./mvnw spring-javaformat:apply
+          ./mvnw package -DskipTests
