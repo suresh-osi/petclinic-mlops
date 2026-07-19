@@ -20,6 +20,7 @@ spec:
         app: petclinic
         version: "1.0"
     spec:
+      serviceAccountName: petclinic-sa
       containers:
       - name: petclinic
         image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/petclinic-mlops:latest

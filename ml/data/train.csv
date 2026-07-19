@@ -29,3 +29,4 @@ pet_age,pet_type,visit_count,previous_no_show,miss_next_visit
 12,cat,1,1,1
 3,dog,7,0,0
 14,cat,1,1,1
+15,dog,0,0,0
